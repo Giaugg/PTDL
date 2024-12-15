@@ -1,9 +1,16 @@
 import pandas as pd
-import re
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.svm import SVR
+from sklearn.metrics import mean_squared_error, r2_score
 
 # Đọc file CSV
-df = pd.read_csv('IMDb_Movies_India.csv', encoding='ISO-8859-1')
+df = pd.read_csv('imdb_top_2000_movies.csv', encoding='ISO-8859-1')
 
 pd.set_option('display.max_columns', None)
 
@@ -22,79 +29,136 @@ print(quantitative)
 
 ######################## XỬ LÍ DỮ LIỆU  NULL ##########################
 #check null
+df['Metascore'].fillna(df['Metascore'].mean(), inplace=True)
+
+# Loại bỏ ký hiệu $ và M, chuyển thành số thập phân 
+df['Gross'] = df['Gross'].str.replace('[\$,M]', '', regex=True).astype(float) 
+# Chuyển đổi từ triệu đô la sang đô la (nếu cần) d
+df['Gross'] = df['Gross'] * 1e6 
+# Xử lý giá trị Na 
+df['Gross'].fillna(df['Gross'].median(), inplace=True)
 print(df.isnull().sum())
-# Hàm để chuyển đổi giá trị trong cột 'vote' tùy theo dấu phẩy và 'M'
-# Hàm để chuyển đổi giá trị trong cột 'vote', loại bỏ tất cả ký tự không phải là số
-def convert_vote(value):
-    if isinstance(value, str):
-        # Loại bỏ tất cả các ký tự không phải là số, phẩy hoặc 'M'
-        value = re.sub(r'[^\d,\.M]', '', value)
-        
-        # Nếu có 'M', chuyển thành triệu
-        if 'M' in value:
-            return float(value.replace(',', '').replace('M', '')) * 1_000_000
-        # Nếu có dấu phẩy (nghìn), chỉ cần loại bỏ dấu phẩy
-        elif ',' in value:
-            return float(value.replace(',', ''))
-    # Nếu không phải chuỗi, giữ nguyên giá trị
-    return value
-
-# Áp dụng hàm convert_vote lên cột 'Votes'
-df['Votes'] = df['Votes'].apply(convert_vote)
-# Chuyển đổi cột 'Votes' thành số thực (float) nếu cần
-df['Votes'] = pd.to_numeric(df['Votes'], errors='coerce')
-# Điền giá trị NaN (nếu có) bằng giá trị trung bình
-df['Votes'].fillna(df['Votes'].mean(), inplace=True)
 
 
-#######################################################################
-# Duyệt qua từng cột và điền giá trị null bằng trung vị của cột
-for column in df.columns:
-    # Kiểm tra nếu cột có kiểu dữ liệu số, vì trung vị chỉ áp dụng cho số
-    if df[column].dtype in ['float64', 'int64']:
-        median_value = df[column].median()  # Tính trung vị
-        df[column].fillna(median_value, inplace=True)  # Điền giá trị null bằng trung vị
+# Loại bỏ các giá trị không phải số trong cột Release Year và điền lại các giá trị thiếu
+df['Release Year'] = pd.to_numeric(df['Release Year'], errors='coerce')
+df['Release Year'].fillna(df['Release Year'].median(), inplace=True)
 
+# Chuyển đổi cột Gross thành số
+df['Gross'] = df['Gross'].replace('[\\$,]', '', regex=True).astype(float)
 
-#######################################################################
-# Chuyển đạo diễn với diễn viên null thành Unknow
-df['Director'].fillna('Unknown', inplace=True)
-df['Actor 1'].fillna('Unknown', inplace=True)
-df['Actor 2'].fillna('Unknown', inplace=True)
-df['Actor 3'].fillna('Unknown', inplace=True)
+# Chuyển đổi cột Votes thành số
+df['Votes'] = df['Votes'].replace(',', '', regex=True).astype(int)
 
+# Fill cột Metascore bằng int thay vì float
+df['Metascore'].fillna(int(round(df['Metascore'].mean())), inplace=True)
+df['Metascore'] = df['Metascore'].astype(int)
 
-#######################################################################
-#Format lại cột duration và fill dữ liệu
-# Bước 1: Chuyển đổi `Duration` sang số nguyên
-df['Duration'] = df['Duration'].str.replace(' min', '').astype(float)  # Chuyển sang float để tránh lỗi nếu có NaN
-# Bước 2: Tính trung vị của cột `Duration` (loại bỏ NaN)
-median_duration = df['Duration'].median()
-# Bước 3: Điền các giá trị NaN bằng trung vị
-df['Duration'].fillna(median_duration, inplace=True)
-#Fill Genre
-df['Genre'].fillna('Unknown', inplace=True)
+# Chuyển đổi các cột phân loại thành số (nếu cần)
+df = pd.get_dummies(df, columns=['Genre', 'Director', 'Cast'], drop_first=True)
 
+# Chia dữ liệu thành các biến độc lập (X) và biến phụ thuộc (y)
+X = df[['Metascore']]
+y = df['IMDB Rating']
 
-#######################################################################
-# In lại DataFrame để kiểm tra
-print(df.head())
+# Chia dữ liệu thành tập huấn luyện và tập kiểm tra
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-###################### Xử lí Genre ##################################
-# Giả sử cột 'Genre' chứa các thể loại
-df['Genre'] = df['Genre'].fillna('Unknown')  # Điền giá trị thiếu
+# Phân tích hồi quy tuyến tính đơn biến
+linear_regressor = LinearRegression()
+linear_regressor.fit(X_train, y_train)
+y_pred_linear = linear_regressor.predict(X_test)
+print("Linear Regression - MSE:", mean_squared_error(y_test, y_pred_linear))
+print("Linear Regression - R2 Score:", r2_score(y_test, y_pred_linear))
 
-# Tính toán tần suất xuất hiện của mỗi thể loại
-genre_counts = df['Genre'].value_counts()
+plt.figure(figsize=(10, 6))
+plt.scatter(X_test, y_test, color='blue', label='Actual')
+plt.plot(X_test, y_pred_linear, color='red', linewidth=2, label='Predicted')
+plt.title('Linear Regression')
+plt.xlabel('Metascore')
+plt.ylabel('IMDB Rating')
+plt.legend()
+plt.show()
 
-# Xác định ngưỡng cho thể loại ít gặp (ví dụ: thể loại xuất hiện dưới 5 lần)
-threshold = 10
+# Phân tích hồi quy đa thức
+poly_features = PolynomialFeatures(degree=2)
+X_poly_train = poly_features.fit_transform(X_train)
+X_poly_test = poly_features.transform(X_test)
+poly_regressor = LinearRegression()
+poly_regressor.fit(X_poly_train, y_train)
+y_pred_poly = poly_regressor.predict(X_poly_test)
+print("Polynomial Regression - MSE:", mean_squared_error(y_test, y_pred_poly))
+print("Polynomial Regression - R2 Score:", r2_score(y_test, y_pred_poly))
 
-# Tạo cột mới 'Simplified_Genre', thay thế các thể loại ít gặp thành 'Tổng hợp'
-df['Simplified_Genre'] = df['Genre'].apply(lambda x: x if genre_counts[x] >= threshold else 'Other')
+plt.figure(figsize=(10, 6))
+plt.scatter(X_test, y_test, color='blue', label='Actual')
+plt.scatter(X_test, y_pred_poly, color='red', label='Predicted')
+plt.title('Polynomial Regression')
+plt.xlabel('Metascore')
+plt.ylabel('IMDB Rating')
+plt.legend()
+plt.show()
 
-# Kiểm tra kết quả
-genre_counts = df['Genre'].value_counts()
-print(genre_counts.head())
+# Phân tích sử dụng cây quyết định
+tree_regressor = DecisionTreeRegressor(random_state=42)
+tree_regressor.fit(X_train, y_train)
+y_pred_tree = tree_regressor.predict(X_test)
+print("Decision Tree - MSE:", mean_squared_error(y_test, y_pred_tree))
+print("Decision Tree - R2 Score:", r2_score(y_test, y_pred_tree))
 
+plt.figure(figsize=(10, 6))
+plt.scatter(range(len(y_test)), y_test, color='blue', label='Actual')
+plt.scatter(range(len(y_test)), y_pred_tree, color='red', label='Predicted')
+plt.title('Decision Tree Regression')
+plt.xlabel('Sample Index')
+plt.ylabel('IMDB Rating')
+plt.legend()
+plt.show()
 
+# Phân tích sử dụng rừng ngẫu nhiên
+forest_regressor = RandomForestRegressor(n_estimators=100, random_state=42)
+forest_regressor.fit(X_train, y_train)
+y_pred_forest = forest_regressor.predict(X_test)
+print("Random Forest - MSE:", mean_squared_error(y_test, y_pred_forest))
+print("Random Forest - R2 Score:", r2_score(y_test, y_pred_forest))
+
+plt.figure(figsize=(10, 6))
+plt.scatter(range(len(y_test)), y_test, color='blue', label='Actual')
+plt.scatter(range(len(y_test)), y_pred_forest, color='red', label='Predicted')
+plt.title('Random Forest Regression')
+plt.xlabel('Sample Index')
+plt.ylabel('IMDB Rating')
+plt.legend()
+plt.show()
+
+# Phân tích sử dụng K láng giềng gần nhất
+knn_regressor = KNeighborsRegressor(n_neighbors=3)
+knn_regressor.fit(X_train, y_train)
+y_pred_knn = knn_regressor.predict(X_test)
+print("K-Nearest Neighbors - MSE:", mean_squared_error(y_test, y_pred_knn))
+print("K-Nearest Neighbors - R2 Score:", r2_score(y_test, y_pred_knn))
+
+plt.figure(figsize=(10, 6))
+plt.scatter(range(len(y_test)), y_test, color='blue', label='Actual')
+plt.scatter(range(len(y_test)), y_pred_knn, color='red', label='Predicted')
+plt.title('K-Nearest Neighbors Regression')
+plt.xlabel('Sample Index')
+plt.ylabel('IMDB Rating')
+plt.legend()
+plt.show()
+
+# Phân tích sử dụng máy vector hỗ trợ
+svr_regressor = SVR(kernel='linear')
+svr_regressor.fit(X_train[['Metascore']], y_train)
+y_pred_svr = svr_regressor.predict(X_test[['Metascore']])
+print("Support Vector Regression - MSE:", mean_squared_error(y_test, y_pred_svr))
+print("Support Vector Regression - R2 Score:", r2_score(y_test, y_pred_svr))
+
+plt.figure(figsize=(10, 6))
+plt.scatter(X_test['Metascore'], y_test, color='blue', label='Actual')
+plt.scatter(X_test['Metascore'], y_pred_svr, color='red', label='Predicted')
+plt.title('Support Vector Regression')
+plt.xlabel('Metascore')
+plt.ylabel('IMDB Rating')
+plt.legend()
+plt.show()
